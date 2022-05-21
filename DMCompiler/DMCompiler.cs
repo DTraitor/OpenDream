@@ -7,7 +7,6 @@ using OpenDreamShared.Compiler;
 using OpenDreamShared.Json;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
@@ -25,7 +24,6 @@ namespace DMCompiler {
         public static DMCompilerSettings Settings;
 
         private static DateTime _compileStartTime;
-        private static DMPreprocessor _preprocessor;
 
         public static bool Compile(DMCompilerSettings settings) {
             Settings = settings;
@@ -40,10 +38,10 @@ namespace DMCompiler {
                 Warning(new CompilerWarning(Location.Internal, "Unimplemented proc & var warnings are currently suppressed"));
             }
 
-            _preprocessor = Preprocess(settings.Files);
+            DMPreprocessor preprocessor = Preprocess(settings.Files);
             if (settings.DumpPreprocessor) {
                 StringBuilder result = new();
-                foreach (Token t in _preprocessor.GetResult()) {
+                foreach (Token t in preprocessor.GetResult()) {
                     result.Append(t.Text);
                 }
 
@@ -52,18 +50,13 @@ namespace DMCompiler {
                 Console.WriteLine($"Preprocessor output dumped to {output}");
             }
 
-            bool successfulCompile = _preprocessor is not null && Compile(_preprocessor.GetResult());
+            bool successfulCompile = preprocessor is not null && Compile(preprocessor.GetResult());
 
-            return EndCompilation(successfulCompile);
-        }
-
-        private static bool EndCompilation(bool successfulCompile)
-        {
             if (successfulCompile)
             {
                 //Output file is the first file with the extension changed to .json
-                string outputFile = Path.ChangeExtension(Settings.Files[0], "json");
-                List<DreamMapJson> maps = ConvertMaps(_preprocessor.IncludedMaps);
+                string outputFile = Path.ChangeExtension(settings.Files[0], "json");
+                List<DreamMapJson> maps = ConvertMaps(preprocessor.IncludedMaps);
 
                 if (ErrorCount > 0)
                 {
@@ -71,7 +64,7 @@ namespace DMCompiler {
                 }
                 else
                 {
-                    var output = SaveJson(maps, _preprocessor.IncludedInterface, outputFile);
+                    var output = SaveJson(maps, preprocessor.IncludedInterface, outputFile);
                     if (ErrorCount > 0)
                     {
                         successfulCompile = false;
@@ -157,12 +150,6 @@ namespace DMCompiler {
         public static void Error(CompilerError error) {
             Console.WriteLine(error);
             ErrorCount++;
-            if (ErrorCount >= 200)
-            {
-                Console.WriteLine("Maximum compilation errors exceeded, aborting.");
-                EndCompilation(false);
-                Environment.Exit(1);
-            }
         }
 
         public static void Warning(CompilerWarning warning) {
