@@ -751,33 +751,42 @@ namespace OpenDreamRuntime.Procs.Native {
             return new DreamValue(1);
         }
 
-        private static DreamValue CreateValueFromJsonElement(JsonElement jsonElement) {
-            if (jsonElement.ValueKind == JsonValueKind.Array) {
-                DreamList list = DreamList.Create();
+        private static DreamValue CreateValueFromJsonElement(JsonElement jsonElement)
+        {
+            switch (jsonElement.ValueKind)
+            {
+                case JsonValueKind.Array:
+                {
+                    DreamList list = DreamList.Create();
 
-                foreach (JsonElement childElement in jsonElement.EnumerateArray()) {
-                    DreamValue value = CreateValueFromJsonElement(childElement);
+                    foreach (JsonElement childElement in jsonElement.EnumerateArray()) {
+                        DreamValue value = CreateValueFromJsonElement(childElement);
 
-                    list.AddValue(value);
+                        list.AddValue(value);
+                    }
+
+                    return new DreamValue(list);
                 }
+                case JsonValueKind.Object:
+                {
+                    DreamList list = DreamList.Create();
 
-                return new DreamValue(list);
-            } else if (jsonElement.ValueKind == JsonValueKind.Object) {
-                DreamList list = DreamList.Create();
+                    foreach (JsonProperty childProperty in jsonElement.EnumerateObject()) {
+                        DreamValue value = CreateValueFromJsonElement(childProperty.Value);
 
-                foreach (JsonProperty childProperty in jsonElement.EnumerateObject()) {
-                    DreamValue value = CreateValueFromJsonElement(childProperty.Value);
+                        list.SetValue(new DreamValue(childProperty.Name), value);
+                    }
 
-                    list.SetValue(new DreamValue(childProperty.Name), value);
+                    return new DreamValue(list);
                 }
-
-                return new DreamValue(list);
-            } else if (jsonElement.ValueKind == JsonValueKind.String) {
-                return new DreamValue(jsonElement.GetString());
-            } else if (jsonElement.ValueKind == JsonValueKind.Number) {
-                return new DreamValue(jsonElement.GetUInt32());
-            } else {
-                throw new Exception("Invalid ValueKind " + jsonElement.ValueKind);
+                case JsonValueKind.String:
+                    return new DreamValue(jsonElement.GetString());
+                case JsonValueKind.Number:
+                    return new DreamValue(jsonElement.GetUInt32());
+                case JsonValueKind.Null:
+                    return DreamValue.Null;
+                default:
+                    throw new Exception("Invalid ValueKind " + jsonElement.ValueKind);
             }
         }
 
@@ -1479,8 +1488,11 @@ namespace OpenDreamRuntime.Procs.Native {
             if (delayMilliseconds > 0) {
                 await Task.Delay(delayMilliseconds);
             } else {
+                // TODO: This postpones execution until the next tick.
+                // It should instead start again in the current tick if possible.
                 await Task.Yield();
             }
+
             return DreamValue.Null;
         }
 
@@ -1751,7 +1763,7 @@ namespace OpenDreamRuntime.Procs.Native {
                     DreamPath objectTypePath = typePath.AddToPath("..");
                     DreamObjectDefinition objectDefinition = DreamManager.ObjectTree.GetObjectDefinition(objectTypePath);
 
-                    foreach (KeyValuePair<string, DreamProc> proc in objectDefinition.Procs) {
+                    foreach (KeyValuePair<string, int> proc in objectDefinition.Procs) {
                         list.AddValue(new DreamValue(proc.Key));
                     }
                 } else {

@@ -1,4 +1,4 @@
-﻿using OpenDreamShared.Compiler;
+using OpenDreamShared.Compiler;
 using DMCompiler.Compiler.DM;
 using OpenDreamShared.Dream;
 using System;
@@ -13,14 +13,13 @@ namespace DMCompiler.DM.Visitors {
             DMObjectTree.Reset();
             ProcessFile(astFile);
 
+            // TODO Nuke this pass
             foreach (DMObject dmObject in DMObjectTree.AllObjects) {
-                dmObject.CompileProcs();
+                dmObject.CreateInitializationProc();
             }
 
-            DMObject root = DMObjectTree.GetDMObject(DreamPath.Root);
-            foreach (DMProc gProc in DMObjectTree.GlobalProcs.Values) {
-                gProc.Compile(root);
-            }
+            foreach (DMProc proc in DMObjectTree.AllProcs)
+                proc.Compile();
 
             DMObjectTree.CreateGlobalInitProc();
         }
@@ -94,17 +93,29 @@ namespace DMCompiler.DM.Visitors {
 
             _currentObject = DMObjectTree.GetDMObject(varOverride.ObjectPath);
 
-            try {
-                if (varOverride.VarName == "parent_type") {
-                    DMASTConstantPath parentType = varOverride.Value as DMASTConstantPath;
+            try
+            {
+                switch (varOverride.VarName)
+                {
+                    case "parent_type":
+                    {
+                        DMASTConstantPath parentType = varOverride.Value as DMASTConstantPath;
 
-                    if (parentType == null) throw new CompileErrorException(varOverride.Location, "Expected a constant path");
-                    _currentObject.Parent = DMObjectTree.GetDMObject(parentType.Value.Path);
-                } else {
-                    DMVariable variable = new DMVariable(null, varOverride.VarName, false, false);
+                        if (parentType == null) throw new CompileErrorException(varOverride.Location, "Expected a constant path");
+                        _currentObject.Parent = DMObjectTree.GetDMObject(parentType.Value.Path);
+                        break;
+                    }
+                    case "tag":
+                        DMCompiler.Error(new CompilerError(varOverride.Location, "tag: may not be set at compile-time"));
+                        break;
+                    default:
+                    {
+                        DMVariable variable = new DMVariable(null, varOverride.VarName, false, false);
 
-                    SetVariableValue(variable, varOverride.Value);
-                    _currentObject.VariableOverrides[variable.Name] = variable;
+                        SetVariableValue(variable, varOverride.Value);
+                        _currentObject.VariableOverrides[variable.Name] = variable;
+                        break;
+                    }
                 }
             } catch (CompileErrorException e) {
                 DMCompiler.Error(e.Error);
@@ -126,15 +137,17 @@ namespace DMCompiler.DM.Visitors {
                     throw new CompileErrorException(procDefinition.Location, $"Type {dmObject.Path} already has a proc named \"{procName}\"");
                 }
 
-                DMProc proc = new DMProc(procDefinition);
+                DMProc proc;
 
                 if (procDefinition.ObjectPath == null) {
                     if (DMObjectTree.TryGetGlobalProc(procDefinition.Name, out _)) {
                         throw new CompileErrorException(new CompilerError(procDefinition.Location, $"proc {procDefinition.Name} is already defined in global scope"));
                     }
 
-                    DMObjectTree.AddGlobalProc(procDefinition.Name, proc);
+                    proc = DMObjectTree.CreateDMProc(dmObject, procDefinition);
+                    DMObjectTree.AddGlobalProc(proc.Name, proc.Id);
                 } else {
+                    proc = DMObjectTree.CreateDMProc(dmObject, procDefinition);
                     dmObject.AddProc(procName, proc);
                 }
 
@@ -147,7 +160,7 @@ namespace DMCompiler.DM.Visitors {
 
                             if (varDeclaration.Value != null) {
                                 DMVisitorExpression._scopeMode = "static";
-                                DMExpression expression = DMExpression.Create(dmObject, null, varDeclaration.Value, varDeclaration.Type);
+                                DMExpression expression = DMExpression.Create(dmObject, proc, varDeclaration.Value, varDeclaration.Type);
                                 DMVisitorExpression._scopeMode = "normal";
                                 DMObjectTree.AddGlobalInitAssign(dmObject, proc.GetGlobalVariableId(varDeclaration.Name).Value, expression);
                             }
@@ -231,6 +244,7 @@ namespace DMCompiler.DM.Visitors {
                 Expressions.List => true,
                 Expressions.NewList => true,
                 Expressions.NewPath => true,
+                Expressions.NewMultidimensionalList => true,
                 Expressions.GlobalField => variable.IsGlobal, // Global set to another global
                 Expressions.StringFormat => variable.IsGlobal,
                 _ => false
